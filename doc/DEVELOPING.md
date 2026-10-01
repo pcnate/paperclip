@@ -17,6 +17,33 @@ Current implementation status:
 
 - Node.js 24.11+
 - pnpm 9+
+- Rust (`cargo`) to build the `paperclip-runnerd` native runtime binary
+
+### Windows
+
+`pnpm install`, `pnpm build`, and `pnpm dev` work from PowerShell or cmd. A few notes:
+
+- **Line endings.** `.gitattributes` checks text files out with LF. Generated-file
+  checks (protocol manifests, catalogs, goldens) fail on CRLF files. If your
+  clone predates `.gitattributes`, refresh it once with
+  `git rm --cached -r -q . && git reset --hard` (commit or stash local work first).
+- **Rust is optional on Windows.** Without `cargo` the build skips
+  `paperclip-runnerd.exe` with a warning. Only agents on the `paperclip_runner`
+  adapter need it; they report `paperclip_runner_binary_missing` until you
+  install Rust from https://rustup.rs and rebuild. Other platforms still require
+  `cargo`. The MSVC toolchain also needs Visual Studio Build Tools with the
+  "Desktop development with C++" workload, including a Windows SDK.
+- **`paperclip_runner` providers on Windows.** Codex app-server runs. The OpenCode
+  and ACPX providers need verified process launch, which runnerd implements
+  only on Linux and macOS, so they fail on Windows with "verified process
+  launch is supported only on Linux and macOS". Use WSL for those providers.
+- **`sh` for agent workloads.** Workspace runtime services and some adapters run
+  their commands through `sh`. Install Git for Windows and put its `usr\bin` on
+  `PATH` (or run from Git Bash) when agents need to run those commands.
+- **Package scripts** must not use POSIX-only commands (`rm -rf`, `mkdir -p`,
+  `cp -R`, `chmod`), because pnpm runs scripts through cmd.exe on Windows. Use
+  `node <path-to>/scripts/fsx.mjs rm|mkdir|cp|chmod …` instead.
+- Release, smoke, and Docker scripts (`./scripts/*.sh`) remain bash-only.
 
 ## Dependency Lockfile Policy
 
