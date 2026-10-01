@@ -1429,10 +1429,46 @@ export async function syncDirectoryToSsh(input: {
       maybeFinish();
     });
     }).finally(auth.cleanup);
+    if (process.platform === "win32") await restoreExecutableModesFromGit(input);
     await progress?.finish();
   } catch (error) {
     await progress?.fail();
     throw error;
+  }
+}
+
+/**
+ * Windows tar archives every file as rw-rw-rw-, so executables arrive on the
+ * remote host without their exec bit. Restore it for files git tracks as
+ * 100755. Untracked executables and non-git directories cannot be recovered.
+ */
+async function restoreExecutableModesFromGit(input: {
+  spec: SshRemoteExecutionSpec;
+  localDir: string;
+  remoteDir: string;
+}): Promise<void> {
+  let listing: string;
+  try {
+    listing = (await runLocalGit(input.localDir, ["ls-files", "-s", "-z"], { maxBuffer: 64 * 1024 * 1024 })).stdout;
+  } catch {
+    return;
+  }
+  const executables = listing
+    .split("\0")
+    .filter((entry) => entry.startsWith("100755 "))
+    .map((entry) => entry.slice(entry.indexOf("\t") + 1));
+  if (executables.length === 0) return;
+
+  const auth = await createSshAuthArgs(input.spec);
+  try {
+    const script = `cd ${shellQuote(input.remoteDir)} && xargs -0 sh -c 'for f; do [ -f "$f" ] && chmod +x "$f"; done; exit 0' sh`;
+    await spawnText(
+      "ssh",
+      [...auth.args, "-p", String(input.spec.port), `${input.spec.username}@${input.spec.host}`, `sh -c ${shellQuote(script)}`],
+      { stdin: `${executables.join("\0")}\0`, timeout: 60_000 },
+    );
+  } finally {
+    await auth.cleanup();
   }
 }
 
