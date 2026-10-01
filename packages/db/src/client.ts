@@ -518,8 +518,11 @@ async function mapHashesToMigrationFiles(migrationFiles: string[]): Promise<Map<
   await Promise.all(
     migrationFiles.map(async (migrationFile) => {
       const content = await readMigrationFileContent(migrationFile);
-      const hash = createHash("sha256").update(content).digest("hex");
-      mapped.set(hash, migrationFile);
+      const lf = content.replace(/\r\n/g, "\n");
+      // Databases migrated from a Windows core.autocrlf checkout recorded CRLF hashes.
+      for (const variant of [content, lf, lf.replace(/\n/g, "\r\n")]) {
+        mapped.set(createHash("sha256").update(variant).digest("hex"), migrationFile);
+      }
     }),
   );
 

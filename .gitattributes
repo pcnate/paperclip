@@ -1,1 +1,6 @@
+# Check out text files with LF on every platform. Generated-file freshness
+# checks (protocol manifests, catalogs, goldens) hash file contents, so a
+# CRLF checkout from core.autocrlf=true on Windows makes them report stale.
+* text=auto eol=lf
+
 patches/*.patch whitespace=-space-before-tab
