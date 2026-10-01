@@ -545,6 +545,16 @@ export async function touchLocalServiceRegistryRecord(
   return next;
 }
 
+// Windows has no process groups and process.kill() ends only the given pid,
+// leaving the service's children (server, embedded postgres) running.
+async function killWindowsProcessTree(pid: number) {
+  try {
+    await execFileAsync("taskkill", ["/pid", String(pid), "/t", "/f"], { windowsHide: true });
+  } catch (error) {
+    if (isPidAlive(pid)) throw error;
+  }
+}
+
 export async function terminateLocalService(
   record: Pick<LocalServiceRegistryRecord, "pid" | "processGroupId"> &
     Partial<Pick<LocalServiceRegistryRecord, "port">>,
@@ -575,7 +585,9 @@ export async function terminateLocalService(
   };
 
   try {
-    if (targetProcessGroup) {
+    if (process.platform === "win32") {
+      await killWindowsProcessTree(record.pid);
+    } else if (targetProcessGroup) {
       process.kill(-record.processGroupId!, signal);
     } else {
       process.kill(record.pid, signal);
@@ -586,7 +598,9 @@ export async function terminateLocalService(
 
   if (await waitUntilGone(opts?.forceAfterMs ?? 2_000)) return;
   try {
-    if (targetProcessGroup) {
+    if (process.platform === "win32") {
+      await killWindowsProcessTree(record.pid);
+    } else if (targetProcessGroup) {
       process.kill(-record.processGroupId!, "SIGKILL");
     } else {
       process.kill(record.pid, "SIGKILL");

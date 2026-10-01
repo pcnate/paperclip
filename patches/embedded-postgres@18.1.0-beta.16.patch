@@ -1,7 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
+index ccfe17a82f4879bf20cc345c579a987d9eba5309..358659911dc8f1107bc24302f16b128856c525d4 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -23,7 +23,7 @@
+@@ -23,7 +23,7 @@ const { Client } = pg;
   * for a particular string, we need to force that string into the right locale.
   * @see https://github.com/leinelissen/embedded-postgres/issues/15
   */
@@ -10,7 +11,7 @@ diff --git a/dist/index.js b/dist/index.js
  // The default configuration options for the class
  const defaults = {
      databaseDir: path.join(process.cwd(), 'data', 'db'),
-@@ -133,7 +133,7 @@
+@@ -133,7 +133,7 @@ class EmbeddedPostgres {
                      `--pwfile=${passwordFile}`,
                      `--lc-messages=${LC_MESSAGES_LOCALE}`,
                      ...this.options.initdbFlags,
@@ -19,12 +20,47 @@ diff --git a/dist/index.js b/dist/index.js
                  // Connect to stderr, as that is where the messages get sent
                  (_a = process.stdout) === null || _a === void 0 ? void 0 : _a.on('data', (chunk) => {
                      // Parse the data as a string and log it
-@@ -177,7 +177,7 @@
+@@ -176,8 +176,11 @@ class EmbeddedPostgres {
+                     this.options.databaseDir,
                      '-p',
                      this.options.port.toString(),
++                    // Windows io_worker processes outlive a killed postmaster and
++                    // keep its shared memory and our stdio pipes alive.
++                    ...(platform() === 'win32' ? ['-c', 'io_method=sync'] : []),
                      ...this.options.postgresFlags,
 -                ], Object.assign(Object.assign({}, permissionIds), { env: { LC_MESSAGES: LC_MESSAGES_LOCALE } }));
 +                ], Object.assign(Object.assign({}, permissionIds), { env: Object.assign(Object.assign({}, globalThis.process.env), { LC_MESSAGES: LC_MESSAGES_LOCALE }) }));
                  // Connect to stderr, as that is where the messages get sent
                  (_a = this.process.stderr) === null || _a === void 0 ? void 0 : _a.on('data', (chunk) => {
                      // Parse the data as a string and log it
+@@ -207,6 +210,30 @@ class EmbeddedPostgres {
+             if (!this.process) {
+                 return;
+             }
++            // On Windows, taskkill /f /t leaves postgres 18 io_worker children
++            // alive holding our stdio pipes, which keeps Node from exiting.
++            // A fast pg_ctl shutdown stops the postmaster and every child.
++            if (platform() === 'win32') {
++                const { pg_ctl } = yield bin;
++                const postmaster = this.process;
++                const exited = new Promise((resolve) => {
++                    if (postmaster.exitCode !== null || postmaster.signalCode !== null) return resolve();
++                    postmaster.on('exit', resolve);
++                });
++                const stopped = yield new Promise((resolve) => {
++                    const ctl = spawn(pg_ctl, ['stop', '-D', this.options.databaseDir, '-m', 'fast', '-w', '-t', '30'], { stdio: 'ignore' });
++                    ctl.on('error', () => resolve(false));
++                    ctl.on('exit', (code) => resolve(code === 0));
++                });
++                if (stopped) {
++                    yield exited;
++                    this.process = undefined;
++                    if (this.options.persistent === false) {
++                        yield fs.rm(this.options.databaseDir, { recursive: true, force: true });
++                    }
++                    return;
++                }
++            }
+             // Kill the existing postgres process
+             yield new Promise((resolve) => {
+                 var _a, _b, _c;
